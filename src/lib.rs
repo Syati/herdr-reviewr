@@ -1308,7 +1308,12 @@ fn event_loop(
                 && !pr.probe_pending
                 && let Some((generation, input)) = pr.refresh.take_fetch()
             {
-                let (tx, repo, epoch) = (pr_tx.clone(), app.repo.clone(), config_epoch);
+                let (tx, repo, epoch, github_cli) = (
+                    pr_tx.clone(),
+                    app.repo.clone(),
+                    config_epoch,
+                    app.plugin_config().and_then(|config| config.github_cli().map(str::to_owned)),
+                );
                 let cancelled = Arc::new(AtomicBool::new(false));
                 pr.active_fetch = Some(ActiveFetch {
                     tag: (generation, epoch),
@@ -1320,7 +1325,12 @@ fn event_loop(
                     _ => None,
                 };
                 thread::spawn(move || {
-                    let view = crate::forge::fetch_cancellable(&repo, &input, &cancelled);
+                    let view = crate::forge::fetch_cancellable_with_cli(
+                        &repo,
+                        &input,
+                        &cancelled,
+                        github_cli.as_deref(),
+                    );
                     // On the worker, so the event loop never runs git.
                     let view = hold_gate(
                         view,

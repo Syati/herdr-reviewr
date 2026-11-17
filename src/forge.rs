@@ -305,8 +305,21 @@ impl PrSnapshot {
 }
 
 /// Run explicitly targeted `gh` arguments in `repo` and return stdout or a classified failure.
-fn gh(repo: &Path, host: &str, args: &[&str], cancelled: &AtomicBool) -> Result<String, GhError> {
-    let mut cmd = crate::proc::command("gh");
+fn gh(
+    repo: &Path,
+    host: &str,
+    args: &[&str],
+    cancelled: &AtomicBool,
+    github_cli: Option<&str>,
+) -> Result<String, GhError> {
+    let words = github_cli.map(crate::editor::split_command);
+    let mut cmd = if let Some(words) = words.as_ref() {
+        let mut cmd = crate::proc::command(&words[0]);
+        cmd.args(&words[1..]);
+        cmd
+    } else {
+        crate::proc::command("gh")
+    };
     cmd.current_dir(repo).args(args);
     run_provider(
         cmd,
@@ -497,7 +510,16 @@ pub(crate) fn fetch_cancellable(
     input: &PrFetchInput,
     cancelled: &AtomicBool,
 ) -> PrView {
-    match fetch_inner(repo, input, cancelled) {
+    fetch_cancellable_with_cli(repo, input, cancelled, None)
+}
+
+pub(crate) fn fetch_cancellable_with_cli(
+    repo: &Path,
+    input: &PrFetchInput,
+    cancelled: &AtomicBool,
+    github_cli: Option<&str>,
+) -> PrView {
+    match fetch_inner(repo, input, cancelled, github_cli) {
         Ok(view) => view,
         Err(error) => error.into(),
     }
@@ -507,6 +529,7 @@ fn fetch_inner(
     repo: &Path,
     input: &PrFetchInput,
     cancelled: &AtomicBool,
+    github_cli: Option<&str>,
 ) -> Result<PrView, GhError> {
     let repository = match &input.repository {
         crate::git::RepositoryIdentity::Repository(target) => target,
@@ -536,14 +559,16 @@ fn fetch_inner(
     }
     // A `gh pr checkout` pin outranks the lookup, unless the forge no longer resolves it.
     if let Some(pin) = input.local.pin_on(crate::git::Forge::GitHub)
-        && let Some(view) = pin_outcome(read_pr(repo, input, &pin.repo, pin.number, cancelled))?
+        && let Some(view) =
+            pin_outcome(read_pr(repo, input, &pin.repo, pin.number, cancelled, github_cli))?
     {
         return Ok(view);
     }
-    let Some((number, detail_repo)) = lookup_pick(repo, input, repository, cancelled)? else {
+    let Some((number, detail_repo)) = lookup_pick(repo, input, repository, cancelled, github_cli)?
+    else {
         return Ok(PrView::NoPr);
     };
-    Ok(read_pr(repo, input, detail_repo, number, cancelled)?.unwrap_or(PrView::NoPr))
+    Ok(read_pr(repo, input, detail_repo, number, cancelled, github_cli)?.unwrap_or(PrView::NoPr))
 }
 
 /// A pinned read's view, or `None` to fall back to the lookup when the pin is stale.
@@ -561,6 +586,7 @@ fn read_pr(
     detail_repo: &crate::git::RepoTarget,
     number: u64,
     cancelled: &AtomicBool,
+    github_cli: Option<&str>,
 ) -> Result<Option<PrView>, GhError> {
     let target = FetchTarget {
         repo,
@@ -568,6 +594,7 @@ fn read_pr(
         owner: detail_repo.owner(),
         name: detail_repo.name(),
         cancelled,
+        github_cli,
     };
     let mut detail = pr_detail(&target, number)?;
     complete_review_thread_comments(&target, &mut detail)?;
@@ -588,6 +615,7 @@ fn lookup_pick<'a>(
     input: &'a PrFetchInput,
     repository: &'a crate::git::RepoTarget,
     cancelled: &AtomicBool,
+    github_cli: Option<&str>,
 ) -> Result<Option<(u64, &'a crate::git::RepoTarget)>, GhError> {
     let names = input.local.head_names();
     if names.is_empty() {
@@ -602,6 +630,7 @@ fn lookup_pick<'a>(
             owner: queried.owner(),
             name: queried.name(),
             cancelled,
+            github_cli,
         };
         let assoc = branch_lookup(&target, queried, heads, &names)?;
         Ok(resolve_pick(repo, &assoc, head)
@@ -672,6 +701,7 @@ struct FetchTarget<'a> {
     owner: &'a str,
     name: &'a str,
     cancelled: &'a AtomicBool,
+    github_cli: Option<&'a str>,
 }
 
 /// One PR from the branch lookup, reduced to the pick-relevant fields.
@@ -710,7 +740,7 @@ fn branch_lookup(
     for (i, name) in names.iter().enumerate() {
         vars.push((format!("b{i}"), name.clone()));
     }
-    let v = graphql(target.repo, target.host, &q, &vars, target.cancelled)?;
+    let v = graphql(target.repo, target.host, &q, &vars, target.cancelled, target.github_cli)?;
     Ok(parse_branch_lookup(&v, names.len(), queried, heads))
 }
 
@@ -851,7 +881,7 @@ fn pr_detail(target: &FetchTarget<'_>, number: u64) -> Result<Value, GhError> {
         ("o".to_string(), target.owner.to_string()),
         ("n".to_string(), target.name.to_string()),
     ];
-    graphql(target.repo, target.host, &q, &vars, target.cancelled)
+    graphql(target.repo, target.host, &q, &vars, target.cancelled, target.github_cli)
 }
 
 /// Project one PR directly, including fork identity and capped check/comment surfaces.
@@ -878,10 +908,11 @@ fn graphql(
     query: &str,
     vars: &[(String, String)],
     cancelled: &AtomicBool,
+    github_cli: Option<&str>,
 ) -> Result<Value, GhError> {
     let args = graphql_args(host, query, vars);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let out = gh(repo, host, &arg_refs, cancelled)?;
+    let out = gh(repo, host, &arg_refs, cancelled, github_cli)?;
     serde_json::from_str(&out).map_err(|e| GhError::Other(e.to_string()))
 }
 
@@ -944,6 +975,7 @@ fn thread_comments_page(target: &FetchTarget<'_>, id: &str, after: &str) -> Resu
         q,
         &[("id".into(), id.to_string()), ("after".into(), after.to_string())],
         target.cancelled,
+        target.github_cli,
     )
 }
 

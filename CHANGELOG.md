@@ -6,6 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- Allow configuring the GitHub CLI command, including `op plugin run -- gh` for 1Password authentication.
+
 ## [0.52.2] — 2026-11-15
 
 ### Fixed

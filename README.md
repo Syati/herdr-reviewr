@@ -205,6 +205,7 @@ editor = "code -g {file}:{line}"
 url_opener = "browser-bridge --new-tab {url}"
 review_prefix = "Fix each comment, then run the tests."
 github_host = "github.example.com"
+github_cli = "op plugin run -- gh" # optional; defaults to `gh`
 gitlab_host = "git.corp.example"
 azure_devops_host = "tfs.corp.example"
 

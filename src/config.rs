@@ -63,7 +63,7 @@ impl Config {
 /// Lines a keyboard move keeps between the diff cursor and the pane's edges, unless configured.
 pub const DEFAULT_SCROLLOFF: usize = 3;
 
-const PLUGIN_CONFIG_KEYS: [&str; 17] = [
+const PLUGIN_CONFIG_KEYS: [&str; 18] = [
     "theme",
     "default_scope",
     "markdown_view",
@@ -75,6 +75,7 @@ const PLUGIN_CONFIG_KEYS: [&str; 17] = [
     "follow_file_across_tabs",
     "scrolloff",
     "github_host",
+    "github_cli",
     "gitlab_host",
     "azure_devops_host",
     "editor",
@@ -187,6 +188,7 @@ pub struct PluginConfig {
     follow_file_across_tabs: bool,
     scrolloff: usize,
     github_host: Option<String>,
+    github_cli: Option<String>,
     gitlab_host: Option<String>,
     azure_devops_host: Option<String>,
     editor: Option<String>,
@@ -209,6 +211,7 @@ impl Default for PluginConfig {
             follow_file_across_tabs: true,
             scrolloff: DEFAULT_SCROLLOFF,
             github_host: None,
+            github_cli: None,
             gitlab_host: None,
             azure_devops_host: None,
             editor: None,
@@ -267,6 +270,11 @@ impl PluginConfig {
 
     pub fn github_host(&self) -> Option<&str> {
         self.github_host.as_deref()
+    }
+
+    /// Command used to launch `gh`; defaults to `gh` on PATH.
+    pub fn github_cli(&self) -> Option<&str> {
+        self.github_cli.as_deref()
     }
 
     pub fn gitlab_host(&self) -> Option<&str> {
@@ -488,6 +496,24 @@ fn parse_plugin_config(path: &Path) -> Result<PluginConfig, PluginConfigError> {
     }
     if let Some(value) = table.get("github_host") {
         config.github_host = Some(parse_forge_host(path, "github_host", value)?);
+    }
+    if let Some(value) = table.get("github_cli") {
+        let command = value
+            .as_str()
+            .filter(|command| !command.trim().is_empty())
+            .ok_or_else(|| value_error(path, value, "github_cli", "a non-empty command"))?;
+        if crate::editor::split_command(command)
+            .first()
+            .is_none_or(|program| program.trim().is_empty())
+        {
+            return Err(value_error(
+                path,
+                value,
+                "github_cli",
+                "a command that names a program first",
+            ));
+        }
+        config.github_cli = Some(command.to_owned());
     }
     if let Some(value) = table.get("gitlab_host") {
         config.gitlab_host = Some(parse_forge_host(path, "gitlab_host", value)?);
