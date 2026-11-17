@@ -1715,8 +1715,20 @@ const PAGE: isize = 15;
 const HALF_PAGE: isize = 8;
 
 /// Apply one readline-style key to the active text field; `word` moves by word.
+#[cfg(test)]
 fn apply_text_edit(app: &mut App, code: KeyCode, ctrl: bool, alt: bool, word: bool) {
-    if !edit_command(app, code, ctrl, alt, word)
+    apply_text_edit_with_keymap(app, code, ctrl, alt, word, keymap::default_keymap());
+}
+
+fn apply_text_edit_with_keymap(
+    app: &mut App,
+    code: KeyCode,
+    ctrl: bool,
+    alt: bool,
+    word: bool,
+    keymap: &keymap::Keymap,
+) {
+    if !edit_command(app, code, ctrl, alt, word, keymap)
         && let KeyCode::Char(c) = code
         && !ctrl
         && !alt
@@ -1726,8 +1738,25 @@ fn apply_text_edit(app: &mut App, code: KeyCode, ctrl: bool, alt: bool, word: bo
 }
 
 /// The caret moves and deletes every text field shares, readline's; `false` when `code` is none.
-fn edit_command(app: &mut App, code: KeyCode, ctrl: bool, alt: bool, word: bool) -> bool {
+fn edit_command(
+    app: &mut App,
+    code: KeyCode,
+    ctrl: bool,
+    alt: bool,
+    word: bool,
+    keymap: &keymap::Keymap,
+) -> bool {
     use KeyCode::{Backspace, Char, Delete, End, Home, Left, Right};
+    if let KeyCode::Char(ch) = code
+        && keymap.input_backspace().contains(&keymap::Key {
+            ctrl,
+            alt,
+            code: keymap::KeyCode::Char(ch),
+        })
+    {
+        app.input_backspace();
+        return true;
+    }
     match code {
         Char('w') if ctrl => app.input_delete_word(),
         Char('a') if ctrl => app.caret_home(),
@@ -1787,7 +1816,7 @@ fn dispatch_key(app: &mut App, key: KeyEvent, area: Rect, keymap: &Keymap) -> Re
             // The box wraps, so `↑`/`↓` walk display rows here rather than editing text.
             Up => app.caret = ui::caret_vertical(&app.input, app.caret, cw, false),
             Down => app.caret = ui::caret_vertical(&app.input, app.caret, cw, true),
-            code => apply_text_edit(app, code, ctrl, alt, word),
+            code => apply_text_edit_with_keymap(app, code, ctrl, alt, word, keymap),
         }
         return Ok(());
     }
@@ -1807,7 +1836,7 @@ fn dispatch_key(app: &mut App, key: KeyEvent, area: Rect, keymap: &Keymap) -> Re
             Up => app.search_move(-1),
             Char('n') if ctrl => app.search_move(1),
             Char('p') if ctrl => app.search_move(-1),
-            code => apply_text_edit(app, code, ctrl, alt, word),
+            code => apply_text_edit_with_keymap(app, code, ctrl, alt, word, keymap),
         }
         return Ok(());
     }
@@ -1820,7 +1849,7 @@ fn dispatch_key(app: &mut App, key: KeyEvent, area: Rect, keymap: &Keymap) -> Re
             Enter => app.line_go(),
             Char(c @ ('0'..='9' | '$')) if !ctrl && !alt => app.line_type(c),
             code => {
-                edit_command(app, code, ctrl, alt, alt || ctrl);
+                edit_command(app, code, ctrl, alt, alt || ctrl, keymap);
             }
         }
         return Ok(());
@@ -1833,7 +1862,7 @@ fn dispatch_key(app: &mut App, key: KeyEvent, area: Rect, keymap: &Keymap) -> Re
             Esc => app.close_find(),
             Enter | Down => app.find_step(1),
             Up => app.find_step(-1),
-            code => apply_text_edit(app, code, ctrl, alt, word),
+            code => apply_text_edit_with_keymap(app, code, ctrl, alt, word, keymap),
         }
         return Ok(());
     }
@@ -1919,7 +1948,7 @@ fn dispatch_key(app: &mut App, key: KeyEvent, area: Rect, keymap: &Keymap) -> Re
             PageUp => app.filter_picker_move(-PAGE),
             Char('n') if ctrl => app.filter_picker_move(1),
             Char('p') if ctrl => app.filter_picker_move(-1),
-            code => apply_text_edit(app, code, ctrl, alt, word),
+            code => apply_text_edit_with_keymap(app, code, ctrl, alt, word, keymap),
         }
         return Ok(());
     }

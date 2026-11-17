@@ -240,12 +240,14 @@ impl Action {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Keymap {
     bindings: Vec<(Action, Vec<Key>)>,
+    input_backspace: Vec<Key>,
 }
 
 impl Default for Keymap {
     fn default() -> Self {
         Self {
             bindings: ACTIONS.iter().map(|(action, _, keys)| (*action, keys.to_vec())).collect(),
+            input_backspace: vec![Key::ctrl('h')],
         }
     }
 }
@@ -301,6 +303,17 @@ impl Keymap {
     #[cfg(test)]
     pub(crate) fn bindings(&self) -> &[(Action, Vec<Key>)] {
         &self.bindings
+    }
+
+    /// Context-specific text-field Backspace aliases; these may also be viewer actions.
+    pub fn input_backspace(&self) -> &[Key] {
+        &self.input_backspace
+    }
+
+    /// Replace the text-field Backspace aliases from `[keybindings]`.
+    pub(crate) fn with_input_backspace(mut self, keys: Vec<Key>) -> Self {
+        self.input_backspace = keys;
+        self
     }
 
     /// The action `key` fires, if any.

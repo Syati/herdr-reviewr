@@ -143,7 +143,8 @@ Every key can be rebound ([Keybindings](#keybindings)).
 | `Shift+Enter` · `Alt+Enter` · `Ctrl+J` | New line |
 
 The usual editing keys work: arrows, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Alt+b` / `Alt+f`,
-`Ctrl+W` / `Ctrl+U` / `Ctrl+K`.
+`Ctrl+W` / `Ctrl+U` / `Ctrl+K`. Text-field Backspace aliases are configurable with
+`[keybindings] input-backspace = ["ctrl+h"]`; physical `Backspace` always works.
 
 **PR tab**
 

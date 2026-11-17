@@ -620,12 +620,34 @@ fn parse_keybindings(
     };
     let mut overrides = Vec::with_capacity(entries.len());
     let mut names_by_action = Vec::with_capacity(entries.len());
+    let mut input_backspace = vec![crate::keymap::Key::ctrl('h')];
     // Loop-invariant, and this parse runs per frame (`CFG-*` snapshots): build it once.
     let expected = format!(
         "a non-empty array of keys, each a character or a named key ({}), alone or behind ctrl+/alt+",
         crate::keymap::KeyCode::names().collect::<Vec<_>>().join(", ")
     );
     for (name, keys) in entries {
+        let entry_key = format!("keybindings.{name}");
+        if name == "input-backspace" {
+            let Some(values) = keys.as_array() else {
+                return Err(value_error(path, keys, &entry_key, expected.as_str()));
+            };
+            if values.is_empty() {
+                return Err(value_error(path, keys, &entry_key, expected.as_str()));
+            }
+            let mut parsed = Vec::with_capacity(values.len());
+            for value in values {
+                let Some(text) = value.as_str() else {
+                    return Err(value_error(path, value, &entry_key, expected.as_str()));
+                };
+                match parse_key(text) {
+                    Some(key) => parsed.push(key),
+                    None => return Err(value_error(path, value, &entry_key, expected.as_str())),
+                }
+            }
+            input_backspace = parsed;
+            continue;
+        }
         let Some(action) = Action::by_config_name(name) else {
             return Err(unknown_key_error(
                 path,
@@ -644,7 +666,6 @@ fn parse_keybindings(
             ));
         }
         names_by_action.push((action, name.as_str()));
-        let entry_key = format!("keybindings.{name}");
         let expected = expected.as_str();
         let Some(values) = keys.as_array() else {
             return Err(value_error(path, keys, &entry_key, expected));
@@ -664,9 +685,9 @@ fn parse_keybindings(
         }
         overrides.push((action, keys));
     }
-    Keymap::resolve(&overrides).map_err(|detail| {
-        PluginConfigError::new(path, format!("invalid value for `keybindings`: {detail}"))
-    })
+    Keymap::resolve(&overrides).map(|keymap| keymap.with_input_backspace(input_backspace)).map_err(
+        |detail| PluginConfigError::new(path, format!("invalid value for `keybindings`: {detail}")),
+    )
 }
 
 fn string_value<'a>(
